@@ -1,47 +1,66 @@
-from os import listdir, chdir, path, mkdir, remove
-from sys import exit
-from subprocess import call
-from shutil import copyfile, move
+import tarfile
+import os
+import sys
+import subprocess
+import shutil
 from pki.client import PKIConnection
 from pki.cert import CertClient
 
-import tarfile
 
+class EasyRsa:
+    """How to use this:
 
-class OpenVPN:
-    def __init__(self, username, directory_easyrsa, directory_client, directory_yealink_pack):
+    :param username: type: str, certificate name to create
+    :param directory_easyrsa: type: str, path to directory when contain easyrsa program
+    :param directory_client: type: str, path to directory where the newly created client private keys lie
+    :param directory_yealink: type: str, path to directory in which the ready 'openvpn.tar' will lie
+    """
+    def __init__(self, username, directory_easyrsa, directory_client, directory_yealink):
         self.username = username
         self.directory_easyrsa = directory_easyrsa
         self.directory_client = directory_client
-        self.directory_yealink_pack = directory_yealink_pack
+        self.directory_yealink = directory_yealink
 
     def check(self):
-        if self.username + '.key' in listdir(self.directory_client):
-            print('This certificate is available: %s. See in %s' % (self.username, self.directory_client))
-            exit(1)
-        elif path.isdir(self.directory_yealink_pack):
-            print('This directory is available: %s. See in %s' % (self.username, self.directory_yealink_pack))
-            exit(1)
+        error_certificate = 'This certificate is available: {0}. See in {1}'
+        error_directory = 'This directory is available: {0}. See in {1}'
+        
+        client_key = self.username + '.key'
+
+        if client_key in os.listdir(self.directory_client):
+            sys.exit(error_certificate.format(self.username, self.directory_client))
+        elif os.path.isdir(self.directory_yealink):
+            sys.exit(error_directory.format(self.username, self.directory_yealink))
         else:
-            mkdir(self.directory_yealink_pack)
+            os.mkdir(self.directory_yealink)
             return self.username
 
     def easy_rsa(self):
+        client_req = '/etc/openvpn/easy-rsa/pki/reqs/{0}.req'
+        client_key = self.username + '.key'
+
         username = self.check()
-        chdir(self.directory_easyrsa)
-        call('./easyrsa --batch gen-req %s nopass' % username, shell=True)
 
-        request = '/etc/openvpn/easy-rsa/pki/reqs/{0}.req'.format(self.username)
+        os.chdir(self.directory_easyrsa)
+        subprocess.call('./easyrsa --batch gen-req %s nopass' % username, shell=True)
 
-        if path.isfile(request):
-            move(self.directory_client + self.username + '.key',  self.directory_yealink_pack)
+        request = client_req.format(self.username)
+
+        if os.path.isfile(request):
+            shutil.move(self.directory_client + client_key,  self.directory_yealink)
             return request
         else:
-            print('Error! Failed to create request certificate. Something goes wrong')
-            exit(1)
+            sys.exit('Error! Failed to create request certificate. Something goes wrong')
 
 
-class Dogtag:
+class DogApi:
+    """How to use this:
+
+    :param protoctol: type: str, protocol type (schema) - http or https
+    :param hostname: type: str, dogtag ca hostname (example.com)
+    :param port: type: str, 80 or 443 or some other port
+    :param cert: type: str, path to authentication certificate for access to dogtag api
+    """
     def __init__(self, protocol, hostname, port, cert):
         self.protocol = protocol
         self.hostname = hostname
@@ -73,6 +92,13 @@ class Dogtag:
 
 
 class YeaLink:
+    """How to use this:
+
+    :param client_dir: type: str, path to client directory where 'openvpn.tar' will be created
+    :param ca_cert: type: str, path to dogtag ca certificate
+    :param ta_key: type: str, path to 'ta.key'
+    :param ovpn_config: type: str, path to client openvpn configuration file
+    """
     def __init__(self, client_dir, ca_cert, ta_key, ovpn_config):
         self.client_dir = client_dir
         self.ca_cert = ca_cert
@@ -81,40 +107,40 @@ class YeaLink:
         self.username = client_dir.split('/')[-1]
 
     def prepare_env(self):
-        chdir(self.client_dir)
-
-        copyfile(self.ovpn_config, self.client_dir + '/vpn.cnf')
+        os.chdir(self.client_dir)
+        shutil.copyfile(self.ovpn_config, self.client_dir + '/vpn.cnf')
 
         f = open(self.client_dir + '/vpn.cnf', 'a')
         f.write('cert /config/openvpn/keys/{0}.crt\nkey /config/openvpn/keys/{0}.key\n'.format(self.username))
 
-        keys = list([self.ca_cert, self.ta_key])
+        keys = [
+            self.ca_cert,
+            self.ta_key,
+        ]
 
-        for i in listdir('.'):
+        for i in os.listdir('.'):
             keys.append(i)
 
-        mkdir('keys')
+        os.mkdir('keys')
 
         for i in keys:
-            if i.endswith('ca.crt'):
-                copyfile(i, './keys/%s' % i.split('/')[-1])
-            elif i.endswith('ta.key'):
-                copyfile(i, './keys/%s' % i.split('/')[-1])
+            if i.endswith('ca.crt') or i.endswith('ta.key'):
+                shutil.copyfile(i, './keys/%s' % i.split('/')[-1])
             elif i == 'vpn.cnf':
                 pass
             else:
-                copyfile(i, './keys/%s' % i)
+                shutil.copyfile(i, './keys/%s' % i)
 
-        for i in listdir('.'):
-            if path.isdir(i) is True or i == 'vpn.cnf':
+        for i in os.listdir('.'):
+            if os.path.isdir(i) is True or i == 'vpn.cnf':
                 pass
             else:
-                remove(i)
+                os.remove(i)
 
-    def yealink_tar(self):
-        chdir(self.client_dir)
+    def tar_certificates(self):
+        os.chdir(self.client_dir)
 
         yealink_tar = tarfile.open('openvpn.tar', 'w')
-        for i in listdir('.'):
+        for i in os.listdir('.'):
             if i != '':
                 yealink_tar.add(i)
