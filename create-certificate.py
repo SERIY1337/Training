@@ -1,10 +1,11 @@
-from dog import Dogtag, OpenVPN, YeaLink
-from argparse import ArgumentParser
+#!/usr/bin/env python2
+import argparse
+import dog
 
 
 def parse():
-    parser = ArgumentParser(prog='./create-certificate.py',
-                            description='This program create certificate for openvpn client')
+    parser = argparse.ArgumentParser(prog='./create-certificate.py',
+                                     description='This program create certificate for openvpn client')
     parser.add_argument('username', type=str,
                         help='Client username, example: Help_Mobile')
     args = parser.parse_args()
@@ -14,8 +15,8 @@ def parse():
 def main():
     directory_easyrsa = '/etc/openvpn/easy-rsa/'
     directory_client = '/etc/openvpn/easy-rsa/pki/private/'
-    directory_yealink_storage = '/etc/openvpn/client-keys/'
-    ca_cert = '/etc/openvpn/ca.crt'
+    directory_yealink = '/etc/openvpn/client-keys/'
+    ca_certificate = '/etc/openvpn/ca.crt'
     ta_key = '/etc/openvpn/ta.key'
     openvpn_config = '/etc/openvpn/python/ovpn.template'
     dogtag_schema = 'https'
@@ -25,18 +26,18 @@ def main():
 
     username = parse()
 
-    directory_yealink_pack = directory_yealink_storage + username
-    signed_certificate = directory_yealink_pack + '/' + username + '.crt'
+    directory_yealink_client = directory_yealink + username + '/'
+    signed_certificate = directory_yealink_client + username + '.crt'
 
-    creation = OpenVPN(username, directory_easyrsa, directory_client, directory_yealink_pack)
-    request_certificate = creation.easy_rsa()
+    creation = dog.EasyRsa(username, directory_easyrsa, directory_client, directory_yealink_client)
+    creation_certificate = creation.easy_rsa()
 
-    conn = Dogtag(dogtag_schema, dogtag_hostname, dogtag_port, dogtag_auth_certificate)
-    conn.enroll(request_certificate, username, signed_certificate)
+    conn = dog.DogApi(dogtag_schema, dogtag_hostname, dogtag_port, dogtag_auth_certificate)
+    conn.enroll(creation_certificate, username, signed_certificate)
 
-    yealink = YeaLink(directory_yealink_pack, ca_cert, ta_key, openvpn_config)
+    yealink = dog.YeaLink(directory_yealink_client, ca_certificate, ta_key, openvpn_config)
     yealink.prepare_env()
-    yealink.yealink_tar()
+    yealink.tar_certificates()
 
 
 main()
